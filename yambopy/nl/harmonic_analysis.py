@@ -12,7 +12,7 @@ import scipy.linalg
 import sys
 import os
 
-def Coefficients_Inversion(NW,NX,P,W,T_period,T_range,T_step,efield,INV_MODE):
+def Coefficients_Inversion(NW,NX,P,W,T_period,T_range,T_step,efield,INV_MODE, tol=1e-8):
     """
     Compute coefficients inversion using various inversion modes.
     see Sec. III in PRB 88, 235113 (2013) 
@@ -257,8 +257,8 @@ def Harmonic_Analysis(nldb, X_order=4, T_range=[-1, -1],prn_Peff=False,INV_MODE=
     #Units of measure rescaling
     for i_order in range(X_order+1):
         Susceptibility[i_order,:,:]*=get_Unit_of_Measure(i_order)
-        if l_eval_current:
-            Conducibility[i_order,:,:]*=get_Unit_of_Measure(i_order)
+        # if l_eval_current:
+        #     Conducibility[i_order,:,:]*=get_Unit_of_Measure(i_order)
     
     # Write final results
     if prn_Xhi:
