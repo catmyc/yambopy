@@ -107,7 +107,7 @@ class YamboDipolesDB():
                     if norm[i,j] == 0: dipoles[ns,nk,:,i,j] = 0.
                     else: dipoles[ns,nk,:,i,j] = dipoles[ns,nk,:,i,j]/norm[i,j]
 
-        if self.spin==1: dipoles=np.squeeze(dipoles)
+        if self.spin==1: dipoles=np.squeeze(dipoles,axis=0)
         self.dipoles = dipoles
 
     def readDB(self,dip_type):
@@ -128,7 +128,7 @@ class YamboDipolesDB():
         database = Dataset(self.filename)
         dip = database.variables['DIP_%s'%(dip_type)]
         if self.spin==1:
-            dip = np.squeeze(dip)
+            dip = np.squeeze(dip,axis=0)
             dip = (dip[:,:,:,:,0]+1j*dip[:,:,:,:,1]) # Read as nk,nv,nc,ir
         if self.spin==2:
             dip = (dip[:,:,:,:,:,0]+1j*dip[:,:,:,:,:,1]) # Read as ns,nk,nv,nc,ir
@@ -218,12 +218,9 @@ class YamboDipolesDB():
             "Dipole rotation is supported only for dip_type = iR, v, P."
         #
         # Note that P, v is Hermitian and iR anti-hermitian.
-        # [FP] Other possible dipole options to be checked (i.e., velocity gauge needs energy renormalization). Treat them as not supported.
-        # [NM] Works for P, v and iR
-        if self.dip_type == 'iR':
-            factor =  -1.0
-        else:
-            factor =  1.0
+        if self.dip_type == 'iR': factor =  -1.0
+        else:                     factor =  1.0
+        
         ##
         #save dipoles in the ibz
         self.dipoles_ibz = dipoles 
