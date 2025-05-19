@@ -904,7 +904,7 @@ class YamboExcitonDB(object):
             for col in range(npts):
                 weights_bz_sum[:,col] = rbfi(x,np.ones_like(x)*y[col])
             # NB we have to take the transpose of the imshow data to get the correct plot
-            ax.imshow(weights_bz_sum.T,interpolation=interp_method,extent=[-lim,lim,-lim,lim])
+            ax.imshow(weights_bz_sum.T,interpolation=interp_method,extent=[-lim,lim,-lim,lim], **kwargs)
         title = kwargs.pop('title',str(excitons))
         
         ax.set_title(title)
