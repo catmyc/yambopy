@@ -318,13 +318,22 @@ class YamboExcitonDB(object):
             exit()
 
         #get eigenvalues along the path
+        max_val = max(self.unique_vbands)
         if isinstance(energies,YamboElectronsDB):
             #expand eigenvalues to the full brillouin zone
             if not energies.EXPAND: energies.expandEigenvalues()
             exc_energies = energies.eigenvalues[0] # SPIN-UP CHANNEL ONLY      
         elif isinstance(energies,YamboQPDB):
+            if energies.min_band-1>self.start_band or energies.max_band<self.mband:
+                print("[WARNING] BSE band range: {self.start_band+1} - {self.mband}\n \
+                                 QP  band range: {energies.min_band} - {energies.max_band}")
             #expand the quasiparticle energies to the full brillouin zone
-            exc_energies = energies.expand_eigenvalues(self.lattice)
+            QP_energies = energies.expand_eigenvalues(self.lattice)
+            #deal with index mismatches
+            max_band  =max(energies.max_band,self.mband)
+            exc_energies = np.zeros((len(QP_energies),max_band))
+            exc_energies[:,energies.min_band-1:energies.max_band] = QP_energies
+            max_val = max_val - energies.min_band+1
         else:
             raise ValueError("Energies argument must be an instance of YamboElectronsDB or YamboQPDB. Got %s"%(type(energies)))
 
@@ -333,23 +342,9 @@ class YamboExcitonDB(object):
         exc_weights  = exc_weights[band_indexes]
 
         #make top valence band to be zero
-        exc_energies -= max(exc_energies[:,max(self.unique_vbands)])
+        exc_energies -= max(exc_energies[:,max_val])
         
         return bands_kpoints, exc_energies, exc_weights, path_car 
-
-    def magnon_bs(self,energies,path,magnons=(0,),debug=False):
-        """
-        Calculate magnon band-structure
-            
-            Arguments:
-            energies -> can be an instance of YamboElectronsDB or YamboQPDB
-            path     -> Path object in reduced coordinates to use for plotting the band structure
-            magnons  -> magnon index to plot
-
-            FP: to be moved in a separate class
-
-            TO BE IMPLEMENTED
-        """
 
     def arpes_intensity(self,energies_db,path,excitons,ax):   #,size=1,space='bands',f=None,debug=False): later on
         """
@@ -968,44 +963,6 @@ class YamboExcitonDB(object):
         ybs = YambopyBandStructure(exc_energies, bands_kpoints, weights=exc_weights, kpath=path_car, size=size)
         return ybs
 
-    def get_magnon_bs(self,energies_db,path,excitons,size=1,space='bands',f=None,debug=False):
-        """
-        Get a YambopyBandstructure object with the exciton band-structure
-        
-            Arguments:
-            ax          -> axis extance of matplotlib to add the plot to
-            lattice     -> Lattice database
-            energies_db -> Energies database, can be either a SaveDB or QPDB
-            path        -> Path in the brillouin zone
-
-            FP: to be moved in a separate class
-
-            TO BE IMPLEMENTED
-        """
-        from qepy.lattice import Path
-        if not isinstance(path,Path): 
-            raise ValueError('Path argument must be a instance of Path. Got %s instead'%type(path))
-    
-        if space == 'bands':
-            bands_kpoints, energies, weights = self.magnon_bs(energies_db, path.kpoints, excitons, debug)
-            nkpoints = len(bands_kpoints)
-            plot_energies = energies[:,self.start_band:self.mband]
-            plot_weights  = weights[:,self.start_band:self.mband]
-        else:
-            raise NotImplementedError('TODO')
-            eh_size = len(self.unique_vbands)*len(self.unique_cbands)
-            nkpoints = len(bands_kpoints)
-            plot_energies = np.zeros([nkpoints,eh_size])
-            plot_weights = np.zeros([nkpoints,eh_size])
-            for eh,(v,c) in enumerate(product(self.unique_vbands,self.unique_cbands)):
-                plot_energies[:,eh] = energies[:,c]-energies[:,v]
-                plot_weights[:,eh] = weights[:,c] 
-
-        if f: plot_weights = f(plot_weights)
-        size *= 1.0/np.max(plot_weights)
-        ybs = YambopyBandStructure(plot_energies, bands_kpoints, weights=plot_weights, kpath=path, size=size)
-        return ybs
-
     def plot_exciton_bs_ax(self,ax,energies_db,path,excitons,size=1,space='bands',f=None,debug=None):
         ybs = self.get_exciton_bs(energies_db,path,excitons,size=size,space=space,f=f,debug=debug)
         return ybs.plot_ax(ax) 
@@ -1058,13 +1015,19 @@ class YamboExcitonDB(object):
             # sym_red are the symmetries of the reciprocal lattice...
             # skw interp wants the symmetries of the direct lattice, so we use sym_rec_red
             # plus, we take the non t-revved ones
-            symrel = [sym for sym,trev in zip(lat.sym_rec_red,lat.time_rev_list) if trev==False ]
-            time_rev = bool(lat.time_rev)
+            if not lat.mag_syms:
+                symrel = [sym for sym,trev in zip(lat.sym_rec_red,lat.time_rev_list) if trev==False ]
+                trev_for_interp = lat.time_rev
+            # Handle special case of mag_sys + trev (e.g. SOC + ferromagnet, etc)
+            elif lat.time_rev:
+                symrel = lat.sym_rec_red
+                trev_for_interp=False
+
         elif no_symmetries:
             eigs = energies.eigenvalues[0,:,self.start_band:self.mband]
             kpoints = lat.red_kpoints
             symrel = [np.identity(3)]
-            time_rev = False
+            trev_for_interp = False
         else:
             raise ValueError("Energies argument must be an instance of YamboElectronsDB or YamboQPDB. Got %s"%(type(energies)))
 
@@ -1078,11 +1041,11 @@ class YamboExcitonDB(object):
         kpoints_path =  path.get_klist()[:,:3]
         
         #interpolate energies
-        skw = SkwInterpolator(lpratio,kpoints,eigs[na,:,:],fermie,nelect,cell,symrel,time_rev,verbose=verbose)
+        skw = SkwInterpolator(lpratio,kpoints,eigs[na,:,:],fermie,nelect,cell,symrel,trev_for_interp,verbose=verbose)
         exc_energies = skw.interp_kpts(kpoints_path).eigens
 
         #interpolate weights
-        skw = SkwInterpolator(lpratio,kpoints,weights[na,:,:],fermie,nelect,cell,symrel,time_rev,verbose=verbose)
+        skw = SkwInterpolator(lpratio,kpoints,weights[na,:,:],fermie,nelect,cell,symrel,trev_for_interp,verbose=verbose)
         exc_weights = skw.interp_kpts(kpoints_path).eigens
 
         # For the band plot (bandstructure object), we need to switch to cartesian coordinates
@@ -1109,8 +1072,13 @@ class YamboExcitonDB(object):
         # Here there is something strange...
         fermie = kwargs.pop('fermie',0)
         ##
-        symrel = [sym for sym,trev in zip(lattice.sym_rec_red,lattice.time_rev_list) if trev==False ]
-        time_rev = True
+        if not lattice.mag_syms:
+            symrel = [sym for sym,trev in zip(lattice.sym_rec_red,lattice.time_rev_list) if trev==False ]
+            trev_for_interp = lattice.time_rev
+        # Handle special case of mag_sys + trev (e.g. SOC + ferromagnet, etc)
+        elif lattice.time_rev:
+            symrel = lattice.sym_rec_red
+            trev_for_interp=False
 
         #vmin, vmax = self.unique_vbands[0], self.unique_vbands[1]
         #cmin, cmax = self.unique_cbands[0], self.unique_cbands[1]
@@ -1138,13 +1106,13 @@ class YamboExcitonDB(object):
 
         #interpolate energies
         na = np.newaxis
-        skw = SkwInterpolator(lpratio,ibz_kpoints,ibz_energies[na,:,:],fermie,nelect,cell,symrel,time_rev,verbose=verbose)
+        skw = SkwInterpolator(lpratio,ibz_kpoints,ibz_energies[na,:,:],fermie,nelect,cell,symrel,trev_for_interp,verbose=verbose)
         kpoints_path = path.get_klist()[:,:3]
         energies = skw.interp_kpts(kpoints_path).eigens
      
         #interpolate transitions
         na = np.newaxis
-        skw = SkwInterpolator(lpratio,ibz_kpoints,ibz_transitions[na,:,:],fermie,nelect,cell,symrel,time_rev,verbose=verbose)
+        skw = SkwInterpolator(lpratio,ibz_kpoints,ibz_transitions[na,:,:],fermie,nelect,cell,symrel,trev_for_interp,verbose=verbose)
         kpoints_path = path.get_klist()[:,:3]
         exc_transitions = skw.interp_kpts(kpoints_path).eigens
 
